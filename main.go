@@ -18,7 +18,7 @@ func main() {
 	quobytePassword := flag.String("password", "quobyte", "Password for the user to connect to the Quobyte API server")
 	quobyteAPIURL := flag.String("api", "localhost:7860", "URL to the API server(s) in the form host[:port][,host:port] or SRV record name")
 	quobyteRegistry := flag.String("registry", "localhost:7861", "URL to the registry server(s) in the form of host[:port][,host:port] or SRV record name")
-
+	allowFixedUserMounts := flag.Bool("allow-fixed-user-mounts", false, "Allow fixed user mounts if they are enabled in the Quobyte client (1.3+)")
 	group := flag.String("group", "root", "Group to create the unix socket")
 	flag.Parse()
 
@@ -33,5 +33,14 @@ func main() {
 
 	qDriver := newQuobyteDriver(*quobyteAPIURL, *quobyteUser, *quobytePassword, *quobyteMountPath)
 	handler := volume.NewHandler(qDriver)
+
+	if *allowFixedUserMounts {
+		go func() {
+			if err := runWatcher(); err != nil {
+				log.Panic(err.Error())
+			}
+		}()
+	}
+
 	log.Println(handler.ServeUnix(*group, quobyteID))
 }

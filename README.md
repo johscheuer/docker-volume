@@ -109,3 +109,22 @@ $ docker volume ls
 ```
 $ docker run --volume-driver=quobyte -v <volumename>:/vol busybox sh -c 'echo "Hello World" > /vol/hello.txt'
 ```
+
+### fixed user mounts
+
+Allow Quobyte client fixed user mount
+
+```
+$ echo "allow-usermapping-in-volumename" >>  /etc/quobyte/client.cfg
+```
+
+Run a container with a specific mapping
+
+```
+$ docker run --volume-driver=quobyte -v TestVolume:/vol --label quobyte.user=root --label quobyte.group=root busybox sh -c 'echo "Hello World" > /vol/hello.txt'
+```
+
+```
+$ docker inspect --format '{{ range .Mounts }}{{ if eq .Destination "/mnt"}}{{ .Source }}{{ end }}{{ end }}' <ID>
+/run/docker/quobyte/mnt/root#root@TestVolume
+```

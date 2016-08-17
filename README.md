@@ -8,6 +8,7 @@ OS              | Docker Version
 --------------- | :------------:
 CentOS 7.2      |     1.10.3
 Ubuntu 16.04    |     1.11.2
+Ubuntu 16.04    |     1.12.0
 CoreOS 1097.0.0 |     1.11.2
 
 ## Build
@@ -21,13 +22,13 @@ $ go get -u github.com/quobyte/docker-volume
 ### Linux
 
 ```
-$ go build -o bin/docker-quobyte-plugin .
+$ go build -ldflags "-s -w" -o bin/docker-quobyte-plugin .
 ```
 
 ### OSX/MacOS
 
 ```
-$ GOOS=linux GOARCH=amd64 go build -o bin/docker-quobyte-plugin .
+$ GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o bin/docker-quobyte-plugin .
 ```
 
 ### Docker
@@ -117,6 +118,8 @@ Allow Quobyte client fixed user mount
 ```
 $ echo "allow-usermapping-in-volumename" >>  /etc/quobyte/client.cfg
 ```
+
+Add the flag `--allow-fixed-user-mounts` to the systemd-file and do an `systemdctl daemon-reload && systemctl restart docker-quobyte-plugin` to activate fixed user mounts in the plugin.
 
 Run a container with a specific mapping
 

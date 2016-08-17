@@ -10,29 +10,31 @@ import (
 )
 
 var (
-	LabelQuobytePrefix = "quobyte."
-	LabelUser          = LabelQuobytePrefix + "user"
-	LabelGroup         = LabelQuobytePrefix + "group"
+	labelQuobytePrefix = "quobyte."
+	labelUser          = labelQuobytePrefix + "user"
+	labelGroup         = labelQuobytePrefix + "group"
 )
 
 var validLabels = []string{
-	LabelUser,
-	LabelGroup,
+	labelUser,
+	labelGroup,
 }
 
 type watcher struct {
 	WatchedStatus       map[string]bool
 	WatchedLabelsPrefix string
 
-	dockerClient *docker.Client
-	listener     chan *docker.APIEvents
+	dockerClient       *docker.Client
+	listener           chan *docker.APIEvents
+	recreatedContainer map[string]bool
 }
 
 func newWatcher(d *docker.Client) (*watcher, error) {
 	return &watcher{
 		WatchedStatus:       map[string]bool{"create": true},
-		WatchedLabelsPrefix: LabelQuobytePrefix,
+		WatchedLabelsPrefix: labelQuobytePrefix,
 		dockerClient:        d,
+		recreatedContainer:  make(map[string]bool),
 	}, nil
 }
 
@@ -62,12 +64,12 @@ func (watcher *watcher) handleEvent(e *docker.APIEvents) error {
 		return err
 	}
 
-	labels := watcher.watchedLabels(c)
-	if len(labels) == 0 {
+	if _, ok := watcher.recreatedContainer[c.ID]; ok == true {
+		log.Printf("Container %s already newly created", c.ID)
 		return nil
 	}
 
-	return adjustMounts(c, labels)
+	return watcher.adjustMounts(c, watcher.watchedLabels(c))
 }
 
 func (watcher *watcher) watchedLabels(c *docker.Container) map[string]string {
@@ -83,28 +85,66 @@ func (watcher *watcher) watchedLabels(c *docker.Container) map[string]string {
 	return matched
 }
 
-func adjustMounts(c *docker.Container, labels map[string]string) error {
-	//mounts := []docker.Mount
+func (watcher *watcher) adjustMounts(c *docker.Container, labels map[string]string) error {
+	if len(labels) == 0 {
+		return nil
+	}
+
+	log.Printf("Adjust Mounts config: %v\n", c.Config)
+
 	for i, mount := range c.Mounts {
 		if mount.Driver != "quobyte" {
 			continue
 		}
 
 		mountDir, mountVolume := path.Split(mount.Source)
-		if user, ok := labels[LabelUser]; ok {
-			if group, ok := labels[LabelGroup]; ok {
+		if user, ok := labels[labelUser]; ok {
+			if group, ok := labels[labelGroup]; ok {
 				mount.Source = path.Join(mountDir, fmt.Sprintf("%s#%s@%s", user, group, mountVolume))
-				c.Mounts[i] = mount
-				continue
+			} else {
+				mount.Source = path.Join(mountDir, fmt.Sprintf("%s@%s", user, mountVolume))
 			}
-
-			mount.Source = path.Join(mountDir, fmt.Sprintf("%s@%s", user, mountVolume))
-			c.Mounts[i] = mount
+		} else {
+			mount.Source = path.Join(mountDir, fmt.Sprintf("%s@%s", "root", mountVolume))
 		}
+		c.Mounts[i] = mount
 	}
 
-	log.Printf("Container: %v", c)
-	return nil
+	return watcher.recreateContainer(c)
+}
+
+func (watcher *watcher) recreateContainer(c *docker.Container) error {
+	log.Printf("Config: %v\n Mounts: %v", c.Config, c.Config.Mounts)
+	newContainer, err := watcher.dockerClient.CreateContainer(
+		docker.CreateContainerOptions{
+			Config:     c.Config,
+			HostConfig: c.HostConfig,
+		})
+
+	if err != nil {
+		return err
+	}
+
+	newContainer, err = client.InspectContainer(newContainer.ID)
+	if err != nil {
+		// handle err
+	}
+
+	log.Printf("Created new Container: %v", newContainer)
+
+	watcher.recreatedContainer[newContainer.ID] = true
+
+	log.Printf("Remove container: %v\n", c)
+	if err := watcher.dockerClient.RemoveContainer(
+		docker.RemoveContainerOptions{
+			ID:            c.ID,
+			RemoveVolumes: false,
+			Force:         true}); err != nil {
+		return err
+	}
+
+	log.Printf("Starting new container: %v\n", newContainer)
+	return watcher.dockerClient.StartContainer(newContainer.ID, newContainer.HostConfig)
 }
 
 func runWatcher() error {

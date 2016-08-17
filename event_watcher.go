@@ -125,7 +125,7 @@ func (watcher *watcher) recreateContainer(c *docker.Container) error {
 		return err
 	}
 
-	newContainer, err = client.InspectContainer(newContainer.ID)
+	newContainer, err = watcher.dockerClient.InspectContainer(newContainer.ID)
 	if err != nil {
 		// handle err
 	}

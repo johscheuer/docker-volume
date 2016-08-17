@@ -69,7 +69,12 @@ func (watcher *watcher) handleEvent(e *docker.APIEvents) error {
 		return nil
 	}
 
-	return watcher.adjustMounts(c, watcher.watchedLabels(c))
+	labels := watcher.watchedLabels(c)
+	if len(labels) == 0 {
+		return nil
+	}
+
+	return watcher.adjustMounts(c, labels)
 }
 
 func (watcher *watcher) watchedLabels(c *docker.Container) map[string]string {
@@ -86,12 +91,6 @@ func (watcher *watcher) watchedLabels(c *docker.Container) map[string]string {
 }
 
 func (watcher *watcher) adjustMounts(c *docker.Container, labels map[string]string) error {
-	if len(labels) == 0 {
-		return nil
-	}
-
-	log.Printf("Adjust Mounts config: %v\n", c.Config)
-
 	for i, mount := range c.Mounts {
 		if mount.Driver != "quobyte" {
 			continue
@@ -114,7 +113,7 @@ func (watcher *watcher) adjustMounts(c *docker.Container, labels map[string]stri
 }
 
 func (watcher *watcher) recreateContainer(c *docker.Container) error {
-	log.Printf("Config: %v\n Mounts: %v", c.Config, c.Config.Mounts)
+	c.Config.Mounts = c.Mounts
 	newContainer, err := watcher.dockerClient.CreateContainer(
 		docker.CreateContainerOptions{
 			Config:     c.Config,
@@ -125,16 +124,8 @@ func (watcher *watcher) recreateContainer(c *docker.Container) error {
 		return err
 	}
 
-	newContainer, err = watcher.dockerClient.InspectContainer(newContainer.ID)
-	if err != nil {
-		// handle err
-	}
-
-	log.Printf("Created new Container: %v", newContainer)
-
 	watcher.recreatedContainer[newContainer.ID] = true
 
-	log.Printf("Remove container: %v\n", c)
 	if err := watcher.dockerClient.RemoveContainer(
 		docker.RemoveContainerOptions{
 			ID:            c.ID,
@@ -143,7 +134,6 @@ func (watcher *watcher) recreateContainer(c *docker.Container) error {
 		return err
 	}
 
-	log.Printf("Starting new container: %v\n", newContainer)
 	return watcher.dockerClient.StartContainer(newContainer.ID, newContainer.HostConfig)
 }
 
